@@ -1,6 +1,6 @@
-﻿using NUnit.Framework;
-using System;
-using System.Collections;
+﻿using System.IO;
+using System.Threading.Tasks;
+using NUnit.Framework;
 
 namespace Flexinets.Ldap.Core.Tests
 {
@@ -40,6 +40,19 @@ namespace Flexinets.Ldap.Core.Tests
             var intlength = Utils.BerLengthToInt(Utils.StringToByteArray(input), 0, out position);
 
             Assert.AreEqual(expected, intlength);
+        }
+
+        [TestCase("8400000159", 345)]
+        [TestCase("840000014f", 335)]
+        [TestCase("840000012b", 299)]
+        public async Task TestBerToIntAsync(string input, int expected)
+        {
+            var bytes = Utils.StringToByteArray(input);
+            var stream = new MemoryStream(bytes, 0, bytes.Length, false);
+
+            var result = await Utils.BerLengthToIntAsync(stream);
+
+            Assert.AreEqual(expected, result.Length);
         }
 
 

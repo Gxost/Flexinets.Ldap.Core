@@ -3,6 +3,8 @@ using System.Collections;
 using System.Text;
 using System.Linq;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Flexinets.Ldap.Core
 {
@@ -101,7 +103,6 @@ namespace Flexinets.Ldap.Core
             return BerLengthToInt(stream, out berByteCount);
         }
 
-
         /// <summary>
         /// Get a BER length from a stream
         /// </summary>
@@ -110,32 +111,60 @@ namespace Flexinets.Ldap.Core
         /// <returns></returns>
         public static int BerLengthToInt(Stream stream, out int berByteCount)
         {
-            berByteCount = 1;   // The minimum length of a ber encoded length is 1 byte
-            int attributeLength = 0;
             var berByte = new byte[1];
-            stream.Read(berByte, 0, 1);
-            if (berByte[0] >> 7 == 1)    // Long notation, first byte tells us how many bytes are used for the length
+            _ = stream.Read(berByte, 0, 1);
+            if (!IsLongNotation(berByte[0], out int lengthBytesLength))
             {
-                var lengthoflengthbytes = berByte[0] & 127;
-                var lengthBytes = new byte[lengthoflengthbytes];
-                stream.Read(lengthBytes, 0, lengthoflengthbytes);
-                Array.Reverse(lengthBytes);                           
-                Array.Resize(ref lengthBytes, 4);   // this will of course explode if length is larger than a 32 bit integer
-                attributeLength = BitConverter.ToInt32(lengthBytes, 0);
-                berByteCount += lengthoflengthbytes;
-            }
-            else // Short notation, length contained in the first byte
-            {
-                attributeLength = berByte[0] & 127;
+                berByteCount = 1;
+                return berByte[0];
             }
 
-            return attributeLength;
+            var lengthBytes = new byte[lengthBytesLength];
+            _ = stream.Read(lengthBytes, 0, lengthBytesLength);
+
+            berByteCount = lengthBytesLength + 1;
+            return GetLongLength(lengthBytes);
         }
 
+        /// <summary>
+        /// Get a BER length from a stream asynchronously
+        /// </summary>
+        /// <param name="stream">Stream at position where BER length should be found</param>
+        /// <param name="cancellationToken">Cancellation token</param>
+        /// <returns>Task returning tuple containing length and byte count</returns>
+        public static async Task<(int Length, int ByteCount)> BerLengthToIntAsync(Stream stream, CancellationToken cancellationToken = default)
+        {
+            var berByte = new byte[1];
+            _ = await stream.ReadAsync(berByte, 0, 1, cancellationToken).ConfigureAwait(false);
+            if (!IsLongNotation(berByte[0], out int lengthBytesLength))
+            {
+                return (berByte[0], 1);
+            }
+
+            var lengthBytes = new byte[lengthBytesLength];
+            _ = await stream.ReadAsync(lengthBytes, 0, lengthBytesLength, cancellationToken).ConfigureAwait(false);
+
+            return (GetLongLength(lengthBytes), lengthBytesLength + 1);
+        }
 
         public static string Repeat(string stuff, int n)
         {
             return string.Concat(Enumerable.Repeat(stuff, n));
+        }
+
+        private static bool IsLongNotation(byte berByte, out int lengthBytesLength)
+        {
+            bool isLongNotation = berByte >> 7 == 1;
+            lengthBytesLength = isLongNotation? berByte & 127 : 0;
+
+            return isLongNotation;
+        }
+
+        private static int GetLongLength(byte[] bytes)
+        {
+            Array.Reverse(bytes);
+            Array.Resize(ref bytes, 4);   // this will of course explode if length is larger than a 32 bit integer
+            return BitConverter.ToInt32(bytes);
         }
     }
 }
